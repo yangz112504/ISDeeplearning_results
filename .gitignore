@@ -1,0 +1,11 @@
+# Ignore the ISDeeplearning repo
+ISDeeplearning/
+
+# Ignore the data folder
+data/
+
+# Optional: typical Python ignores
+__pycache__/
+*.pyc
+.env
+*.pkl
