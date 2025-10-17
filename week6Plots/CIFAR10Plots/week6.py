@@ -81,25 +81,29 @@ trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuff
 testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
 testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=4)
 
-#add Vgg16 but don't replace Vgg11
-
-# ---------------- Model Definitions ---------------- #
-class Vgg11(nn.Module):
+#add Vgg16
+class Vgg16(nn.Module):
     def __init__(self, act_fun="relu", num_classes=10, param=None):
-        super(Vgg11, self).__init__()
+        super(Vgg16, self).__init__()
         self.param = param
         self.act_fun = self._get_act_fun(act_fun)
 
         self.features = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
 
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
 
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
             nn.Conv2d(256, 256, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
@@ -109,8 +113,12 @@ class Vgg11(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
+            nn.Conv2d(512, 512, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
 
+            nn.Conv2d(512, 512, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
@@ -143,7 +151,7 @@ class Vgg11(nn.Module):
             return lambda x: zailu(x, self.param)
         else:
             return F.relu
-
+    
     # Once I get to the ReLU layers, I will apply the custom activation function instead
     def forward(self, x):
         for layer in self.features:
@@ -160,38 +168,6 @@ class Vgg11(nn.Module):
                 x = layer(x)
         return x
 
-class MLP(nn.Module):
-    def __init__(self, act_fun, param=None):
-        super().__init__()
-        self.fc1 = nn.Linear(32*32*3, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, 128)
-        self.fc4 = nn.Linear(128, 64)
-        self.fc5 = nn.Linear(64, 10)
-
-        self.param = param if param is not None else 1
-        if act_fun == "relu":
-            self.act_fun = F.relu
-        elif act_fun == "gelu":
-            self.act_fun = F.gelu
-        elif act_fun == "silu":
-            self.act_fun = F.silu
-        elif act_fun == "gelu_a":
-            self.act_fun = lambda x: gelu_a(x, self.param)
-        elif act_fun == "silu_a":
-            self.act_fun = lambda x: silu_a(x, self.param)
-        elif act_fun == "zailu":
-            self.act_fun = lambda x: zailu(x, self.param)
-
-    def forward(self, x):
-        x = torch.flatten(x, 1)
-        x = self.act_fun(self.fc1(x))
-        x = self.act_fun(self.fc2(x))
-        x = self.act_fun(self.fc3(x))
-        x = self.act_fun(self.fc4(x))
-        return self.fc5(x)
-
-
 # ---------------- Custom Activations ---------------- #
 def gelu_a(x, a=1):
     if a >= LARGE:
@@ -204,10 +180,9 @@ def silu_a(x, a=1):
         return F.relu(x)
     return x * torch.sigmoid(a * x)
 
-def zailu(x, s=1):
-    if s >= LARGE:
-        return F.relu(x)
-    return x * (2 * (1/4 + 1/(2 * torch.pi) * torch.arctan(s * x)))
+def zailu(x, sigma=1.0):
+    z = sigma * x
+    return x * 0.5 * (1 + 2 * F.relu(z)) / (1 + torch.abs(z))
 
 
 # ---------------- Experiment Runner ---------------- #
@@ -225,12 +200,8 @@ def run_experiments(activations, params=None, num_trials=5, epochs=20, save_dir=
                     print(f"\nTraining {act.upper()} model with param={p}...")
 
                     # Choose model
-                    if use_mlp:
-                        model = MLP(act, param=p).to(mps_device)
-                        net_name = "MLP"
-                    else:
-                        model = Vgg11(act_fun=act, param=p).to(mps_device)
-                        net_name = "VGG11"
+                    model = Vgg16(act_fun=act, param=p).to(mps_device)
+                    net_name = "VGG16"
 
                     # Xavier init
                     for layer in model.modules():
@@ -364,7 +335,7 @@ results_param_zailu, summary_df_zailu = run_experiments(
 plot_results(results_param_zailu, epochs=epochs)
 
 summary_df_all = pd.concat([summary_df_as, summary_df_zailu], ignore_index=True)
-summary_df_all.to_csv("results/VGG11_CIFAR10_all_summary.csv", index=False)
+summary_df_all.to_csv("results/VGG16_CIFAR10_all_summary.csv", index=False)
 
 print("\nCombined summary across all activations:")
 print(summary_df_all)
