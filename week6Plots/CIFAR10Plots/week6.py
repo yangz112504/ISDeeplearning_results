@@ -180,9 +180,14 @@ def silu_a(x, a=1):
         return F.relu(x)
     return x * torch.sigmoid(a * x)
 
-def zailu(x, sigma=1.0):
-    z = sigma * x
-    return x * 0.5 * (1 + 2 * F.relu(z)) / (1 + torch.abs(z))
+# def zailu(x, sigma=1.0):
+#     z = sigma * x
+#     return x * 0.5 * (1 + 2 * F.relu(z)) / (1 + torch.abs(z))
+
+def zailu(x, s=1):
+    if s >= LARGE:
+        return F.relu(x)
+    return x * (2 * (1/4 + 1/(2 * torch.pi) * torch.arctan(s * x)))
 
 
 # ---------------- Experiment Runner ---------------- #
