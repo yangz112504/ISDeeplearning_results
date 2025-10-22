@@ -149,6 +149,14 @@ class Vgg16(nn.Module):
             return lambda x: silu_a(x, self.param)
         elif act_fun == "zailu":
             return lambda x: zailu(x, self.param)
+        elif act_fun == "mish":
+            return lambda x: x * torch.tanh(F.softplus(x))
+        elif act_fun == "softplus":
+            return F.softplus
+        elif act_fun == "tanh":
+            return torch.tanh
+        elif act_fun == "sigmoid":
+            return torch.sigmoid
         else:
             return F.relu
     
