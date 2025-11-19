@@ -1,0 +1,25 @@
+activation,CPU,GPU (MPS)
+Identity,0.001 ms,0.001 ms
+Leaky ReLU,1.947 ms,0.003 ms
+Hardsigmoid,1.968 ms,0.003 ms
+ReLU6,1.969 ms,0.034 ms
+Hardshrink,1.995 ms,0.008 ms
+Hardswish,2.141 ms,0.003 ms
+ReLU,2.419 ms,0.457 ms
+Arctan Approx,2.536 ms,0.422 ms
+Zailu Approx,2.583 ms,0.776 ms
+Squareplus,2.724 ms,0.653 ms
+SiLU,3.950 ms,0.892 ms
+Sigmoid,4.090 ms,0.011 ms
+Swish,5.066 ms,0.911 ms
+Softsign,6.958 ms,0.011 ms
+Arctan,8.194 ms,0.551 ms
+Zailu,8.449 ms,0.788 ms
+GELU,8.456 ms,9.105 ms
+ELU,9.197 ms,0.075 ms
+SELU,9.875 ms,0.052 ms
+CELU,10.114 ms,0.067 ms
+Tanh,11.122 ms,0.009 ms
+Softplus,12.265 ms,0.084 ms
+Tanhshrink,13.931 ms,0.006 ms
+Mish,30.153 ms,0.946 ms
