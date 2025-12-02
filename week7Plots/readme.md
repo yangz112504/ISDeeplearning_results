@@ -6,7 +6,7 @@ Very strange...because zailu approximation uses arctanx which should take comput
 
 Even though zailu approx took longer, there was less test loss and more accuracy overall
 
-benchmarks a wide range of PyTorch activation functions — both built-in and custom — across available devices (CPU, CUDA GPU, and Apple MPS).
+Benchmarked a wide range of PyTorch activation functions — both built-in and custom — across available devices (CPU, CUDA GPU, and Apple MPS).
 It measures execution speed over thousands of iterations and outputs both raw timing data and a formatted research-style table for easy comparison.
 
 We test each activation over a fixed input tensor ([-10, 10] range).

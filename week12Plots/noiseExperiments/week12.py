@@ -228,106 +228,204 @@ def test_with_noise(model, testloader, sigma):
 
     return total_loss / len(testloader), 100.0 * correct / total
 
+# ============================================================
+# TRAINING WITH OPTIONAL NOISE
+# ============================================================
+def add_noise(x, sigma):
+    noise = torch.randn_like(x) * sigma
+    return x + noise
+
+def train_model(model, trainloader, epochs=5, lr=1e-3, sigma=0.0):
+    """Train model with optional training noise."""
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    for epoch in range(epochs):
+        model.train()
+        running_loss = 0.0
+
+        for x, y in trainloader:
+            x, y = x.to(device), y.to(device)
+
+            # noisy TRAINING
+            if sigma > 0:
+                x = add_noise(x, sigma)
+
+            optimizer.zero_grad(set_to_none=True)
+            out = model(x)
+            loss = criterion(out, y)
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item()
+
+        print(f"[Epoch {epoch+1}] Loss={running_loss/len(trainloader):.4f}")
+
 
 # ============================================================
-# MAIN NOISE ROBUSTNESS EXPERIMENT
+# TESTING WITH NOISE / MULTIPLE INJECTIONS
 # ============================================================
-ACTIVATIONS = ["relu", "silu", "gelu", "zailu", "zailu_approx"]
 
-def run_noise_experiment(num_trials=3, epochs=100, save_dir="mnist_resnet_noise"):
-    os.makedirs(save_dir, exist_ok=True)
+def evaluate_noise(model, testloader, sigma, injections=20):
+    """Run multiple noise-injection passes and average results."""
+    criterion = nn.CrossEntropyLoss()
+    model.eval()
 
-    sigmas = list(range(9))   # noise 0..8
-    all_results = {}
+    all_losses = []
+    all_accs = []
 
-    for act in ACTIVATIONS:
-        print("\n===================================================")
-        print(f" Running 3 trials for activation: {act}")
-        print("===================================================\n")
+    with torch.no_grad():
+        for _ in range(injections):
+            total = 0
+            correct = 0
+            running_loss = 0.0
 
-        trial_dfs = []
+            for x, y in testloader:
+                x, y = x.to(device), y.to(device)
 
-        for trial in range(num_trials):
-            print(f"\n--- Trial {trial+1}/{num_trials} for {act} ---")
+                # noisy TESTING
+                if sigma > 0:
+                    x = add_noise(x, sigma)
 
-            # Build fresh model
+                out = model(x)
+                loss = criterion(out, y)
+
+                running_loss += loss.item()
+                correct += (out.argmax(1) == y).sum().item()
+                total += y.size(0)
+
+            all_losses.append(running_loss / len(testloader))
+            all_accs.append(100 * correct / total)
+
+    return np.mean(all_losses), np.mean(all_accs)
+
+
+# ============================================================
+# FULL EXPERIMENTS
+# ============================================================
+
+ACTS = ["relu", "gelu", "silu", "zailu", "zailu_approx"]
+SIGMAS = list(range(9))  # 0..8
+
+
+def run_paper_experiment():
+    """
+    Clean training, noisy testing.
+    10 trials x 5 act functions x 9 sigma.
+    20 noise injections per sigma.
+    """
+    print("\n=== Running PAPER experiment ===\n")
+    results = {}
+
+    for act in ACTS:
+        act_results = []
+        print(f"\n--- Activation: {act} ---")
+
+        for trial in range(10):
+            print(f"\n  Trial {trial+1}/10")
+
             model = ResNet18(act_fun=act).to(device)
+            train_model(model, trainloader, epochs=5, sigma=0.0)  # clean training
 
-            # Train clean
-            train_clean(model, trainloader, epochs=epochs)
+            for sigma in SIGMAS:
+                loss, acc = evaluate_noise(model, testloader, sigma, injections=20)
+                act_results.append({
+                    "activation": act,
+                    "trial": trial,
+                    "sigma": sigma,
+                    "test_loss": loss,
+                    "test_acc": acc
+                })
 
-            losses, accs = [], []
+        df = pd.DataFrame(act_results)
+        results[act] = df
+        df.to_csv(f"paper_noise_{act}.csv", index=False)
+    return results
 
-            #TEst Noise injection number
-            INJECTION_NUMBER = 50
-            # Noise test
-            for _ in range(INJECTION_NUMBER):
-                for sigma in sigmas:
-                    loss, acc = test_with_noise(model, testloader, sigma)
-                    losses.append(loss)
-                    accs.append(acc)
-                    print(f"σ={sigma} | loss={loss:.4f} | acc={acc:.2f}%")
-            # Then average all the losses and accs for each sigma
-            losses = np.array(losses).reshape(INJECTION_NUMBER, len(sigmas)).mean(axis=0).tolist()
-            accs = np.array(accs).reshape(INJECTION_NUMBER, len(sigmas)).mean(axis=0).tolist()
 
-            df = pd.DataFrame({
-                "sigma": sigmas,
-                "test_loss": losses,
-                "test_acc": accs,
-                "trial": trial
-            })
 
-            df.to_csv(f"{save_dir}/noise_curve_{act}_trial{trial+1}.csv", index=False)
-            trial_dfs.append(df)
+def run_custom_experiment():
+    """
+    Noisy training AND noisy testing.
+    Train once per sigma.
+    10 trials x 5 act functions x 9 sigma
+    Testing repeated 50x.
+    """
+    print("\n=== Running CUSTOM experiment ===\n")
+    results = {}
 
-        # combine all 3 trials
-        full_df = pd.concat(trial_dfs, ignore_index=True)
-        full_df.to_csv(f"{save_dir}/noise_curve_{act}_ALL_TRIALS.csv", index=False)
+    for act in ACTS:
+        act_results = []
+        print(f"\n--- Activation: {act} ---")
 
-        all_results[act] = full_df
+        for trial in range(10):
+            print(f"\n  Trial {trial+1}/10")
 
-    return all_results
+            for sigma in SIGMAS:
+                print(f"Training with sigma={sigma}")
+
+                model = ResNet18(act_fun=act).to(device)
+                train_model(model, trainloader, epochs=5, sigma=sigma)  # noisy training
+
+                loss, acc = evaluate_noise(model, testloader, sigma, injections=50)
+                act_results.append({
+                    "activation": act,
+                    "trial": trial,
+                    "sigma": sigma,
+                    "test_loss": loss,
+                    "test_acc": acc
+                })
+
+        df = pd.DataFrame(act_results)
+        results[act] = df
+        df.to_csv(f"custom_noise_{act}.csv", index=False)
+
+    return results
+
 
 # ============================================================
 # PLOTTING
 # ============================================================
-def plot_noise_curves(results, save_dir="mnist_noise_plots"):
-    os.makedirs(save_dir, exist_ok=True)
 
+def plot_all(results, prefix="paper"):
+    os.makedirs("plots", exist_ok=True)
+    colors = {
+        "relu":"b", "gelu":"g", "silu":"r", "zailu":"m", "zailu_approx":"c"
+    }
+
+    # === LOSS PLOT ===
+    plt.figure(figsize=(8,5))
     for act, df in results.items():
+        g = df.groupby("sigma")["test_loss"].mean()
+        plt.plot(g.index, g.values, marker='o', label=act, color=colors[act])
+    plt.xlabel("Sigma")
+    plt.ylabel("Test Loss")
+    plt.title(f"{prefix.upper()} Experiment - Loss vs Sigma")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(f"plots/{prefix}_loss.png")
+    plt.close()
 
-        # Average across trials
-        grouped = df.groupby("sigma").agg({
-            "test_loss": "mean",
-            "test_acc": "mean"
-        }).reset_index()
-
-        # === LOSS PLOT ===
-        plt.figure(figsize=(6,4))
-        plt.plot(grouped["sigma"], grouped["test_loss"], marker="o")
-        plt.xlabel("Noise Sigma")
-        plt.ylabel("Test Loss")
-        plt.title(f"ResNet18 Noise Robustness - {act}")
-        plt.grid(True)
-        plt.savefig(f"{save_dir}/loss_{act}.png")
-        plt.close()
-
-        # === ACCURACY PLOT ===
-        plt.figure(figsize=(6,4))
-        plt.plot(grouped["sigma"], grouped["test_acc"], marker="o")
-        plt.xlabel("Noise Sigma")
-        plt.ylabel("Accuracy (%)")
-        plt.title(f"ResNet18 Noise Robustness - {act}")
-        plt.grid(True)
-        plt.savefig(f"{save_dir}/acc_{act}.png")
-        plt.close()
-
+    # === ACCURACY PLOT ===
+    plt.figure(figsize=(8,5))
+    for act, df in results.items():
+        g = df.groupby("sigma")["test_acc"].mean()
+        plt.plot(g.index, g.values, marker='o', label=act, color=colors[act])
+    plt.xlabel("Sigma")
+    plt.ylabel("Test Accuracy (%)")
+    plt.title(f"{prefix.upper()} Experiment - Accuracy vs Sigma")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(f"plots/{prefix}_acc.png")
+    plt.close()
 
 
 # ============================================================
 # MAIN
 # ============================================================
+
 if __name__ == "__main__":
-    results = run_noise_experiment(num_trials=3, epochs=100)
-    plot_noise_curves(results)
+    paper_results = run_paper_experiment()
+    plot_all(paper_results, prefix="paper")
+
+    custom_results = run_custom_experiment()
+    plot_all(custom_results, prefix="custom")
